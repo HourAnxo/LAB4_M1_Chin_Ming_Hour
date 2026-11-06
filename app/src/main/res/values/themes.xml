@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background before Compose draws. Compose theme does the real colours. -->
+    <style name="Theme.ExpenseTracker" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

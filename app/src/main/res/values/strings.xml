@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Expense Tracker</string>
+    <string name="this_month_total">This month\'s total</string>
+    <string name="spending_by_category">Spending by category</string>
+    <string name="recent_expenses">Recent expenses</string>
+    <string name="no_expenses_yet">No expenses yet</string>
+    <string name="add_expense">Add expense</string>
+    <string name="delete_expense">Delete expense</string>
+    <string name="expense_deleted">Expense deleted</string>
+    <string name="undo">Undo</string>
+    <string name="category_food">Food</string>
+    <string name="category_transport">Transport</string>
+    <string name="category_shopping">Shopping</string>
+    <string name="category_bills">Bills</string>
+    <string name="category_entertainment">Entertainment</string>
+    <string name="category_other">Other</string>
+    <string name="money_format">%1$s %2$.2f</string>
+    <string name="expense_row_summary">%1$s · %2$s</string>
+</resources>
