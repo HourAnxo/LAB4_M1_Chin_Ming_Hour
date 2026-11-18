@@ -1,6 +1,8 @@
 package com.example.expensetracker
 
 import androidx.annotation.StringRes
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
 
 object Categories {
     // Keys stored in Expense.category. These are data, not labels.
@@ -24,3 +26,10 @@ fun categoryLabelRes(category: String): Int = when (category) {
     Categories.ENTERTAINMENT -> R.string.category_entertainment
     else -> R.string.category_other
 }
+
+// NEW (Lab 5): short names used by the Form picker (D7) and the Dashboard filter (D9).
+val categoryKeys: List<String> get() = Categories.all
+
+// NEW (Lab 5): the translated label for a key, e.g. "food" -> "Food" (or the Khmer text).
+@Composable
+fun categoryLabel(category: String): String = stringResource(categoryLabelRes(category))

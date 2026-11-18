@@ -1,6 +1,9 @@
 package com.example.expensetracker
 
 import android.content.res.Configuration
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,10 +31,14 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
@@ -51,18 +60,38 @@ fun DashboardScreen(
     snackbarHostState: SnackbarHostState,
     onAddExpense: () -> Unit,
     onDeleteExpense: (Expense) -> Unit,
+    onExpenseClick: (Expense) -> Unit,                 // NEW (Lab 5): open Detail
     modifier: Modifier = Modifier
 ) {
+    // NEW (Part 4): the chosen category. null = "All".
+    // rememberSaveable -> the choice stays after a rotation.
+    var selectedCategory by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // NEW (Part 4): a PLAIN val for the filtered list.
+    // Worked out again on every change, so it can never get out of sync.
+    val visibleExpenses =
+        if (selectedCategory == null) expenses
+        else expenses.filter { it.category == selectedCategory }
+
+    // NEW (Part 5): the total follows the filter, in KHR (USD x 4,000).
+    val totalKhr = visibleExpenses.sumOf { it.amountInKhr() }
+
     // Plain vals: worked out from the list on every change. No second state to keep in sync.
+    // CHANGED: category totals are now in KHR too, so USD and KHR add up correctly.
     val thisMonth = YearMonth.now()
     val monthExpenses = expenses.filter { YearMonth.from(it.date) == thisMonth }
-    val monthTotal = monthExpenses.sumOf { it.amount }
     val categoryTotals = Categories.all.associateWith { category ->
-        monthExpenses.filter { it.category == category }.sumOf { it.amount }
+        monthExpenses.filter { it.category == category }.sumOf { it.amountInKhr() }
     }
 
-    // derivedStateOf: only recalculates the boolean, and only changes when empty <-> not empty.
-    val isEmpty by remember(expenses) { derivedStateOf { expenses.isEmpty() } }
+    // derivedStateOf: only changes when empty <-> not empty.
+    // CHANGED: also reads selectedCategory, so the empty message follows the filter.
+    val isEmpty by remember(expenses) {
+        derivedStateOf {
+            if (selectedCategory == null) expenses.isEmpty()
+            else expenses.none { it.category == selectedCategory }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
@@ -70,6 +99,7 @@ fun DashboardScreen(
             TopAppBar(title = { Text(stringResource(R.string.app_name)) })
         },
         floatingActionButton = {
+            // D5: now opens the empty Form (ExpenseApp decides that)
             FloatingActionButton(onClick = onAddExpense) {
                 Icon(Icons.Default.Add, contentDescription = stringResource(R.string.add_expense))
             }
@@ -88,7 +118,7 @@ fun DashboardScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_medium))
         ) {
-            // Month total
+            // CHANGED: the total (follows the filter, animated, in KHR)
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -98,20 +128,24 @@ fun DashboardScreen(
                 ) {
                     Column(modifier = Modifier.padding(dimensionResource(R.dimen.card_padding))) {
                         Text(
-                            text = stringResource(R.string.this_month_total),
+                            text = stringResource(R.string.total),
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
-                        Text(
-                            text = stringResource(R.string.money_format, BASE_CURRENCY, monthTotal),
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
+                        AnimatedTotal(totalKhr = totalKhr)
                     }
                 }
             }
 
-            // Spending by category
+            // NEW (Part 4 / D9): the category filter
+            item {
+                CategoryFilterRow(
+                    selected = selectedCategory,
+                    onSelect = { selectedCategory = it }
+                )
+            }
+
+            // Spending by category (this month, in KHR)
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -132,7 +166,7 @@ fun DashboardScreen(
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Text(
-                                    text = stringResource(R.string.money_format, BASE_CURRENCY, total),
+                                    text = formatMoney(total, "KHR"),
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                             }
@@ -163,9 +197,11 @@ fun DashboardScreen(
                     )
                 }
             } else {
-                items(expenses, key = { it.id }) { expense ->
+                // CHANGED: visibleExpenses instead of expenses
+                items(visibleExpenses, key = { it.id }) { expense ->
                     ExpenseRow(
                         expense = expense,
+                        onClick = { onExpenseClick(expense) },   // NEW
                         onDelete = { onDeleteExpense(expense) }
                     )
                 }
@@ -174,12 +210,70 @@ fun DashboardScreen(
     }
 }
 
+// NEW (Part 5): the total counts to its new value in about half a second.
+//
+// Problem: when we come back from Detail or Form, Navigation 3 builds the
+// Dashboard again, so animateFloatAsState would START at the new total and
+// there would be nothing to animate.
+// Fix: remember the last number we SHOWED (rememberSaveable keeps it while the
+// Dashboard is in the back stack), start from it, then move to the real total.
+@Composable
+private fun AnimatedTotal(totalKhr: Double) {
+    var lastShown by rememberSaveable { mutableFloatStateOf(totalKhr.toFloat()) }
+    var target by remember { mutableFloatStateOf(lastShown) }
+
+    LaunchedEffect(totalKhr) { target = totalKhr.toFloat() }
+
+    val animated by animateFloatAsState(
+        targetValue = target,
+        animationSpec = tween(durationMillis = 500),
+        label = "total",
+        finishedListener = { lastShown = it }
+    )
+
+    // A Float can't hold every big number exactly (e.g. 20,000,001).
+    // While counting, show the Float. When it arrives, show the exact Double.
+    val shown = if (animated == totalKhr.toFloat()) totalKhr else animated.toDouble()
+
+    Text(
+        text = formatMoney(shown, "KHR"),
+        style = MaterialTheme.typography.headlineMedium,
+        color = MaterialTheme.colorScheme.onPrimaryContainer
+    )
+}
+
+// NEW (D9): "All" + each of your categories, as chips you can scroll sideways
+@Composable
+private fun CategoryFilterRow(selected: String?, onSelect: (String?) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
+    ) {
+        FilterChip(
+            selected = selected == null,
+            onClick = { onSelect(null) },
+            label = { Text(stringResource(R.string.filter_all)) }
+        )
+        Categories.all.forEach { category ->
+            FilterChip(
+                selected = selected == category,
+                onClick = { onSelect(category) },
+                label = { Text(stringResource(categoryLabelRes(category))) }
+            )
+        }
+    }
+}
+
 @Composable
 private fun ExpenseRow(
     expense: Expense,
+    onClick: () -> Unit,                               // NEW
     onDelete: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    // CHANGED: Card(onClick = ...) makes the whole row tappable (opens Detail)
+    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.padding(start = dimensionResource(R.dimen.card_padding)),
             verticalAlignment = Alignment.CenterVertically
@@ -189,7 +283,7 @@ private fun ExpenseRow(
                 verticalArrangement = Arrangement.spacedBy(dimensionResource(R.dimen.spacing_small))
             ) {
                 Text(
-                    text = stringResource(R.string.money_format, expense.currency, expense.amount),
+                    text = formatMoney(expense.amount, expense.currency),
                     style = MaterialTheme.typography.titleMedium
                 )
                 // Remark is optional user text, so it is shown only when there is one.
@@ -231,7 +325,8 @@ private fun InteractiveDashboardPreview(initial: List<Expense>) {
         expenses = expenses,
         snackbarHostState = remember { SnackbarHostState() },
         onAddExpense = { expenses.add(0, createSampleExpense(sampleCount++)) },
-        onDeleteExpense = { expenses.remove(it) }
+        onDeleteExpense = { expenses.remove(it) },
+        onExpenseClick = {}                            // NEW: no navigation in a preview
     )
 }
 
